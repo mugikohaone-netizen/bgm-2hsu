@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BGM→コード変換ツール</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#15130f;
+    --panel:#1d1a14;
+    --panel2:#252017;
+    --border:#3a3327;
+    --text:#f3efe4;
+    --text-dim:#a79c87;
+    --amber:#e0a458;
+    --amber-bright:#f4c177;
+    --mint:#6fcf97;
+    --warn:#e0835c;
+    --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --display:'Space Grotesk', system-ui, -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--display);
+    -webkit-font-smoothing:antialiased;
+    padding:24px 16px 64px;
+  }
+  .wrap{max-width:760px;margin:0 auto;}
+  header{margin-bottom:28px;}
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--amber);
+    margin:0 0 8px;
+  }
+  h1{font-size:24px;font-weight:700;margin:0 0 8px;letter-spacing:-.01em;}
+  .lede{color:var(--text-dim);font-size:14px;line-height:1.6;margin:0;}
+  .howto{
+    margin-top:16px;padding:14px 16px;background:var(--panel);
+    border:1px solid var(--border);border-radius:10px;
+    font-size:13px;line-height:1.8;color:var(--text-dim);
+  }
+  .howto b{color:var(--text);}
+  .dropzone{
+    margin-top:20px;border:1.5px dashed var(--border);border-radius:14px;
+    padding:36px 20px;text-align:center;cursor:pointer;
+    transition:border-color .15s, background .15s;background:var(--panel);
+  }
+  .dropzone.drag{border-color:var(--amber);background:var(--panel2);}
+  .dropzone .icon{font-size:28px;margin-bottom:10px;color:var(--amber);}
+  .dropzone .main{font-size:15px;font-weight:600;}
+  .dropzone .sub{font-size:12px;color:var(--text-dim);margin-top:4px;}
+  input[type=file]{display:none;}
+
+  .shared-section{margin-top:28px;display:none;}
+  .shared-section.show{display:block;}
+  .section-label{
+    font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--mint);margin:0 0 8px;
+  }
+
+  .card{margin-top:18px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;}
+  .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;}
+  .fname{font-weight:600;font-size:14px;word-break:break-all;}
+  .fmeta{font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:3px;}
+  .remove-btn{background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;line-height:1;padding:2px 4px;}
+  .remove-btn:hover{color:var(--warn);}
+
+  .waveform-wrap{position:relative;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#0e0c09;touch-action:none;}
+  canvas{display:block;width:100%;height:84px;touch-action:none;}
+
+  .loop-inputs{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;align-items:flex-end;}
+  .loop-inputs label{font-size:11px;color:var(--text-dim);display:flex;flex-direction:column;gap:4px;}
+  .loop-inputs input{
+    width:90px;background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    font-family:var(--mono);font-size:13px;padding:6px 8px;border-radius:6px;
+  }
+  .reset-loop{background:none;border:1px solid var(--border);color:var(--text-dim);font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;}
+  .reset-loop:hover{border-color:var(--amber);color:var(--amber);}
+
+  .controls{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+  button.ctrl{
+    background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    font-family:var(--display);font-size:12px;font-weight:600;padding:8px 12px;border-radius:7px;cursor:pointer;
+  }
+  button.ctrl:hover{border-color:var(--amber);}
+  button.ctrl.primary{background:var(--amber);color:#1a1610;border-color:var(--amber);}
+  button.ctrl.primary:hover{background:var(--amber-bright);}
+  button.ctrl.stop{color:var(--warn);}
+
+  .tabs{display:flex;gap:6px;margin-top:18px;border-bottom:1px solid var(--border);}
+  .tab-btn{
+    background:none;border:none;color:var(--text-dim);font-family:var(--display);
+    font-size:12px;font-weight:600;padding:8px 4px;cursor:pointer;
+    border-bottom:2px solid transparent;margin-bottom:-1px;
+  }
+  .tab-btn.active{color:var(--amber);border-color:var(--amber);}
+
+  .code-block{display:none;margin-top:10px;}
+  .code-block.active{display:block;}
+  pre.code-preview{
+    font-family:var(--mono);font-size:11.5px;line-height:1.6;color:#d8d2c4;
+    background:#0e0c09;border:1px solid var(--border);border-radius:8px;padding:12px;
+    overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow-y:auto;
+  }
+  .code-actions{display:flex;gap:8px;margin-top:8px;}
+  .size-warn{
+    margin-top:10px;font-size:11.5px;color:var(--warn);background:rgba(224,131,92,.1);
+    border:1px solid rgba(224,131,92,.3);padding:8px 10px;border-radius:7px;
+  }
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--mint);color:#0e1c12;font-size:12px;font-weight:600;
+    padding:9px 16px;border-radius:20px;opacity:0;pointer-events:none;
+    transition:opacity .2s, transform .2s;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+
+  footer{margin-top:36px;font-size:11.5px;color:var(--text-dim);line-height:1.8;}
+  @media (max-width:480px){ .loop-inputs input{width:80px;} }
+</style>
+<link rel="apple-touch-icon" href="./icon.png">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Audio → Embeddable Code</p>
+    <h1>BGM→コード変換ツール</h1>
+    <p class="lede">音楽ファイルをHTMLアプリに埋め込めるコードに変換します。ループ範囲を指定すれば、イントロ付きのBGMもシームレスにループ再生させるコードが作れます。</p>
+    <div class="howto"><b>使い方</b>　① 音楽ファイルを選択 → ② 波形でループ範囲を確認・調整 → ③ コードをコピー → ④ HTMLに貼り付け</div>
+  </header>
+
+  <div class="dropzone" id="dropzone">
+    <div class="icon">♪</div>
+    <div class="main">音楽ファイルをドロップ、またはタップして選択</div>
+    <div class="sub">mp3 / wav / ogg・複数選択可</div>
+    <input type="file" id="fileInput" accept="audio/*" multiple>
+  </div>
+
+  <div class="shared-section" id="sharedSection">
+    <p class="section-label">共通コード（ページに1回だけ貼り付け）</p>
+    <pre class="code-preview" id="sharedCodePreview"></pre>
+    <div class="code-actions"><button class="ctrl primary" id="copySharedBtn">共通クラスをコピー</button></div>
+  </div>
+
+  <div id="fileList"></div>
+
+  <footer>
+    ※ ループ範囲の指定は「再生位置の制御」であり、埋め込みデータ自体のサイズは小さくなりません。<br>
+    ※ サイズを抑えたい場合は、事前に外部ツールで短尺化・OGG/Opus化（同じ音質でもmp3よりかなり小さくなります）しておくのがおすすめです。<br>
+    ※ 目安として、base64化すると元ファイルよりおよそ33%大きくなります。
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const fileList = document.getElementById('fileList');
+  const sharedSection = document.getElementById('sharedSection');
+  const sharedCodePreview = document.getElementById('sharedCodePreview');
+  const copySharedBtn = document.getElementById('copySharedBtn');
+  const toast = document.getElementById('toast');
+
+  let audioCtx = null;
+  let currentPlayback = null;
+  let fileCounter = 0;
+  const states = {};
+
+  const SHARED_CLASS_CODE = `class BGMPlayer {
+  constructor(dataUri, loopStart = 0, loopEnd = null) {
+    this.dataUri = dataUri;
+    this.loopStart = loopStart;
+    this.loopEnd = loopEnd;
+    this.ctx = null;
+    this.buffer = null;
+    this.source = null;
+    this.gainNode = null;
+  }
+  async _ensureBuffer() {
+    if (this.buffer) return this.buffer;
+    this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    const res = await fetch(this.dataUri);
+    const arr = await res.arrayBuffer();
+    this.buffer = await this.ctx.decodeAudioData(arr);
+    if (this.loopEnd === null) this.loopEnd = this.buffer.duration;
+    return this.buffer;
+  }
+  async play({ fadeInSec = 0, volume = 0.6, loop = true } = {}) {
+    await this._ensureBuffer();
+    this.stop();
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    this.gainNode = this.ctx.createGain();
+    this.gainNode.gain.value = fadeInSec ? 0 : volume;
+    this.gainNode.connect(this.ctx.destination);
+    this.source = this.ctx.createBufferSource();
+    this.source.buffer = this.buffer;
+    this.source.loop = loop;
+    this.source.loopStart = this.loopStart;
+    this.source.loopEnd = this.loopEnd;
+    this.source.connect(this.gainNode);
+    this.source.start(0);
+    if (fadeInSec) {
+      this.gainNode.gain.linearRampToValueAtTime(volume, this.ctx.currentTime + fadeInSec);
+    }
+  }
+  stop({ fadeOutSec = 0 } = {}) {
+    if (!this.source) return;
+    const src = this.source;
+    const gain = this.gainNode;
+    if (fadeOutSec && gain) {
+      const now = this.ctx.currentTime;
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0, now + fadeOutSec);
+      src.stop(now + fadeOutSec);
+    } else {
+      src.stop();
+    }
+    this.source = null;
+  }
+}`;
+  sharedCodePreview.textContent = SHARED_CLASS_CODE;
+  copySharedBtn.addEventListener('click', () => copyText(SHARED_CLASS_CODE, '共通クラスをコピーしました'));
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  ['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+  dropzone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+  fileInput.addEventListener('change', e => { handleFiles(e.target.files); fileInput.value = ''; });
+
+  function handleFiles(fileListRaw) {
+    const files = Array.from(fileListRaw).filter(f => f.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(f.name));
+    if (files.length) sharedSection.classList.add('show');
+    files.forEach(processFile);
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1024/1024).toFixed(2) + ' MB';
+  }
+  function formatTime(sec) {
+    if (!isFinite(sec)) return '0:00.0';
+    const m = Math.floor(sec/60);
+    const s = (sec - m*60).toFixed(1);
+    return m + ':' + s.padStart(4,'0');
+  }
+  function bufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000;
+    for (let i=0; i<bytes.length; i+=chunkSize) {
+      const chunk = bytes.subarray(i, i+chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+  }
+  function safeVarName(name) {
+    let n = name.replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9_]/g,'_');
+    if (!/^[a-zA-Z_]/.test(n)) n = '_' + n;
+    return 'bgm_' + n;
+  }
+  function guessMime(file) {
+    if (file.type) return file.type;
+    const ext = file.name.split('.').pop().toLowerCase();
+    const map = { mp3:'audio/mpeg', wav:'audio/wav', ogg:'audio/ogg', m4a:'audio/mp4', aac:'audio/aac', flac:'audio/flac' };
+    return map[ext] || 'audio/mpeg';
+  }
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function processFile(file) {
+    const id = 'f' + (fileCounter++);
+    const mime = guessMime(file);
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-head">
+        <div>
+          <div class="fname">${escapeHtml(file.name)}</div>
+          <div class="fmeta" id="${id}-meta">読み込み中...</div>
+        </div>
+        <button class="remove-btn" title="削除">×</button>
+      </div>
+      <div class="waveform-wrap"><canvas id="${id}-canvas"></canvas></div>
+      <div class="loop-inputs">
+        <label>ループ開始(秒)<input type="number" id="${id}-start" step="0.01" min="0"></label>
+        <label>ループ終了(秒)<input type="number" id="${id}-end" step="0.01" min="0"></label>
+        <button class="reset-loop" id="${id}-reset">全体を選択</button>
+      </div>
+      <div class="controls">
+        <button class="ctrl primary" id="${id}-playloop">▶ ループ再生プレビュー</button>
+        <button class="ctrl stop" id="${id}-stop">■ 停止</button>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="simple">シンプル(&lt;audio&gt;)</button>
+        <button class="tab-btn" data-tab="webaudio">シームレスループ</button>
+      </div>
+      <div class="code-block active" data-tab="simple">
+        <pre class="code-preview" id="${id}-code-simple"></pre>
+        <div class="code-actions">
+          <button class="ctrl" id="${id}-copy-simple">コピー</button>
+          <button class="ctrl" id="${id}-dl-simple">.jsダウンロード</button>
+        </div>
+      </div>
+      <div class="code-block" data-tab="webaudio">
+        <pre class="code-preview" id="${id}-code-webaudio"></pre>
+        <div class="code-actions">
+          <button class="ctrl" id="${id}-copy-webaudio">コピー</button>
+          <button class="ctrl" id="${id}-dl-webaudio">.jsダウンロード</button>
+        </div>
+      </div>
+      <div id="${id}-warn"></div>
+    `;
+    card.querySelector('.remove-btn').addEventListener('click', () => {
+      stopPlayback();
+      card.remove();
+      delete states[id];
+    });
+    fileList.appendChild(card);
+
+    card.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        card.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        card.querySelectorAll('.code-block').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        card.querySelector(`.code-block[data-tab="${btn.dataset.tab}"]`).classList.add('active');
+      });
+    });
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const decodeBuffer = arrayBuffer.slice(0);
+      const base64 = bufferToBase64(arrayBuffer);
+      const dataUri = `data:${mime};base64,${base64}`;
+      const base64Bytes = base64.length;
+
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuffer = await audioCtx.decodeAudioData(decodeBuffer);
+
+      const state = {
+        id, file, mime, dataUri, audioBuffer,
+        duration: audioBuffer.duration,
+        loopStart: 0,
+        loopEnd: audioBuffer.duration,
+        originalBytes: file.size,
+        base64Bytes,
+        varName: safeVarName(file.name)
+      };
+      states[id] = state;
+
+      document.getElementById(`${id}-meta`).textContent =
+        `${formatTime(state.duration)}　原:${formatBytes(state.originalBytes)} → 埋込:${formatBytes(base64Bytes)}`;
+
+      const warnEl = document.getElementById(`${id}-warn`);
+      if (base64Bytes > 1.5*1024*1024) {
+        warnEl.innerHTML = `<div class="size-warn">埋め込みサイズが大きめです（${formatBytes(base64Bytes)}）。ページが重くなる場合は短尺化やOGG/Opus化を検討してください。</div>`;
+      }
+
+      const startInput = document.getElementById(`${id}-start`);
+      const endInput = document.getElementById(`${id}-end`);
+      startInput.value = '0.00';
+      endInput.value = state.duration.toFixed(2);
+      startInput.max = state.duration.toFixed(2);
+      endInput.max = state.duration.toFixed(2);
+
+      const canvas = document.getElementById(`${id}-canvas`);
+      setupCanvas(canvas);
+      drawWaveform(canvas, state);
+
+      startInput.addEventListener('change', () => {
+        let v = parseFloat(startInput.value) || 0;
+        v = Math.max(0, Math.min(v, state.loopEnd - 0.05));
+        state.loopStart = v;
+        startInput.value = v.toFixed(2);
+        drawWaveform(canvas, state);
+        updateCode(state);
+      });
+      endInput.addEventListener('change', () => {
+        let v = parseFloat(endInput.value) || state.duration;
+        v = Math.min(state.duration, Math.max(v, state.loopStart + 0.05));
+        state.loopEnd = v;
+        endInput.value = v.toFixed(2);
+        drawWaveform(canvas, state);
+        updateCode(state);
+      });
+      document.getElementById(`${id}-reset`).addEventListener('click', () => {
+        state.loopStart = 0;
+        state.loopEnd = state.duration;
+        startInput.value = '0.00';
+        endInput.value = state.duration.toFixed(2);
+        drawWaveform(canvas, state);
+        updateCode(state);
+      });
+
+      setupDrag(canvas, state, startInput, endInput);
+
+      document.getElementById(`${id}-playloop`).addEventListener('click', () => playLoop(state));
+      document.getElementById(`${id}-stop`).addEventListener('click', stopPlayback);
+
+      document.getElementById(`${id}-copy-simple`).addEventListener('click', () => copyText(buildSimpleCode(state), 'コードをコピーしました'));
+      document.getElementById(`${id}-copy-webaudio`).addEventListener('click', () => copyText(buildWebAudioCode(state), 'コードをコピーしました'));
+      document.getElementById(`${id}-dl-simple`).addEventListener('click', () => downloadText(buildSimpleCode(state), `${state.varName}_simple.js`));
+      document.getElementById(`${id}-dl-webaudio`).addEventListener('click', () => downloadText(buildWebAudioCode(state), `${state.varName}.js`));
+
+      updateCode(state);
+    } catch (err) {
+      document.getElementById(`${id}-meta`).textContent = '読み込みに失敗しました: ' + err.message;
+    }
+  }
+
+  function setupCanvas(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width || canvas.parentElement.clientWidth;
+    canvas.width = width * dpr;
+    canvas.height = 84 * dpr;
+    canvas.style.width = width + 'px';
+    canvas.style.height = '84px';
+    canvas.dpr = dpr;
+  }
+
+  function drawWaveform(canvas, state) {
+    const ctx = canvas.getContext('2d');
+    const dpr = canvas.dpr || 1;
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = '#0e0c09';
+    ctx.fillRect(0,0,w,h);
+
+    const data = state.audioBuffer.getChannelData(0);
+    const bars = Math.max(1, Math.floor(w / 2.5));
+    const blockSize = Math.max(1, Math.floor(data.length / bars));
+    const mid = h/2;
+
+    const loopStartX = (state.loopStart/state.duration) * w;
+    const loopEndX = (state.loopEnd/state.duration) * w;
+    ctx.fillStyle = 'rgba(111,207,151,.14)';
+    ctx.fillRect(loopStartX, 0, loopEndX-loopStartX, h);
+
+    for (let i=0; i<bars; i++) {
+      let max = 0;
+      const start = i*blockSize;
+      for (let j=0; j<blockSize; j++) {
+        const v = Math.abs(data[start+j] || 0);
+        if (v > max) max = v;
+      }
+      const barH = Math.max(1, max * h * 0.9);
+      const x = i*2.5;
+      const inLoop = x >= loopStartX && x <= loopEndX;
+      ctx.fillStyle = inLoop ? '#e0a458' : '#5c5547';
+      ctx.fillRect(x, mid - barH/2, 1.6, barH);
+    }
+
+    ctx.strokeStyle = '#f4c177';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(loopStartX,0); ctx.lineTo(loopStartX,h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(loopEndX,0); ctx.lineTo(loopEndX,h); ctx.stroke();
+    ctx.restore();
+  }
+
+  function setupDrag(canvas, state, startInput, endInput) {
+    let dragging = null;
+    const threshold = 10;
+
+    function xToTime(x) {
+      const rect = canvas.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, x / rect.width));
+      return ratio * state.duration;
+    }
+    function timeToX(t) {
+      const rect = canvas.getBoundingClientRect();
+      return (t/state.duration) * rect.width;
+    }
+
+    canvas.addEventListener('pointerdown', e => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const startX = timeToX(state.loopStart);
+      const endX = timeToX(state.loopEnd);
+      if (Math.abs(x-startX) < threshold) dragging = 'start';
+      else if (Math.abs(x-endX) < threshold) dragging = 'end';
+      else return;
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      let t = xToTime(x);
+      if (dragging === 'start') {
+        t = Math.max(0, Math.min(t, state.loopEnd - 0.05));
+        state.loopStart = t;
+        startInput.value = t.toFixed(2);
+      } else {
+        t = Math.min(state.duration, Math.max(t, state.loopStart + 0.05));
+        state.loopEnd = t;
+        endInput.value = t.toFixed(2);
+      }
+      drawWaveform(canvas, state);
+      updateCode(state);
+    });
+    canvas.addEventListener('pointerup', () => dragging = null);
+    canvas.addEventListener('pointercancel', () => dragging = null);
+
+    window.addEventListener('resize', debounce(() => {
+      setupCanvas(canvas);
+      drawWaveform(canvas, state);
+    }, 200));
+  }
+
+  function debounce(fn, ms) {
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(()=>fn(...args), ms); };
+  }
+
+  async function playLoop(state) {
+    stopPlayback();
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.value = 0.7;
+    gainNode.connect(audioCtx.destination);
+    const source = audioCtx.createBufferSource();
+    source.buffer = state.audioBuffer;
+    source.loop = true;
+    source.loopStart = state.loopStart;
+    source.loopEnd = state.loopEnd;
+    source.connect(gainNode);
+    source.start(0, state.loopStart);
+    currentPlayback = { source, gainNode };
+  }
+  function stopPlayback() {
+    if (currentPlayback && currentPlayback.source) {
+      try { currentPlayback.source.stop(); } catch(e){}
+    }
+    currentPlayback = null;
+  }
+
+  function truncateBase64InCode(code) {
+    return code.replace(/base64,([A-Za-z0-9+/=]{60})[A-Za-z0-9+/=]+/g,
+      (m, head) => `base64,${head}...[以下 base64 データが続きます]`);
+  }
+
+  function buildSimpleCode(state) {
+    return `<!-- ${state.file.name} (${formatBytes(state.base64Bytes)} embedded) -->
+<audio id="${state.varName}" src="${state.dataUri}" preload="auto"></audio>
+<script>
+  const ${state.varName}_el = document.getElementById('${state.varName}');
+  ${state.varName}_el.loop = true;
+  function play_${state.varName}() { ${state.varName}_el.currentTime = 0; ${state.varName}_el.play(); }
+  function stop_${state.varName}() { ${state.varName}_el.pause(); ${state.varName}_el.currentTime = 0; }
+<\/script>`;
+  }
+
+  function buildWebAudioCode(state) {
+    return `// ${state.file.name}（ページ上部の共通 BGMPlayer クラスが必要です）
+const ${state.varName} = new BGMPlayer(
+  "${state.dataUri}",
+  ${state.loopStart.toFixed(2)}, // ループ開始(秒)
+  ${state.loopEnd.toFixed(2)}  // ループ終了(秒)
+);
+// 再生: ${state.varName}.play({ fadeInSec: 1, volume: 0.6 });
+// 停止: ${state.varName}.stop({ fadeOutSec: 1 });`;
+  }
+
+  function updateCode(state) {
+    document.getElementById(`${state.id}-code-simple`).textContent = truncateBase64InCode(buildSimpleCode(state));
+    document.getElementById(`${state.id}-code-webaudio`).textContent = truncateBase64InCode(buildWebAudioCode(state));
+  }
+
+  function copyText(text, msg) {
+    navigator.clipboard.writeText(text).then(() => showToast(msg)).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); showToast(msg); } catch(e) {}
+      document.body.removeChild(ta);
+    });
+  }
+  function downloadText(text, filename) {
+    const blob = new Blob([text], {type:'text/javascript'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+})();
+</script>
+
+<script>
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.getRegistrations().then(regs=>{
+    regs.forEach(r=>r.unregister());
+  }).then(()=>{
+    navigator.serviceWorker.register('./sw.js');
+  });
+}
+</script>
+</body>
+</html>
