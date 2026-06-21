@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.all.min.js"></script>
 <style>
   :root{
     --bg:#15130f;
@@ -86,6 +87,12 @@
   .reset-loop{background:none;border:1px solid var(--border);color:var(--text-dim);font-size:11px;padding:7px 10px;border-radius:6px;cursor:pointer;}
   .reset-loop:hover{border-color:var(--amber);color:var(--amber);}
 
+  .compress-row{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:10px;}
+  .compress-row label{font-size:11.5px;color:var(--text-dim);display:flex;align-items:center;gap:6px;cursor:pointer;}
+  .compress-row select{background:var(--panel2);border:1px solid var(--border);color:var(--text);font-family:var(--display);font-size:12px;padding:6px 8px;border-radius:6px;}
+  .compress-status{margin-top:8px;font-size:11.5px;color:var(--mint);}
+  .compress-status.processing{color:var(--text-dim);}
+
   .controls{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
   button.ctrl{
     background:var(--panel2);border:1px solid var(--border);color:var(--text);
@@ -154,8 +161,7 @@
   <div id="fileList"></div>
 
   <footer>
-    ※ ループ範囲の指定は「再生位置の制御」であり、埋め込みデータ自体のサイズは小さくなりません。<br>
-    ※ サイズを抑えたい場合は、事前に外部ツールで短尺化・OGG/Opus化（同じ音質でもmp3よりかなり小さくなります）しておくのがおすすめです。<br>
+    ※ ループ範囲の指定は「再生位置の制御」であり、それ単独では埋め込みデータのサイズは小さくなりません。サイズを抑えたい場合は各ファイルの「サイズを小さくする」から圧縮してください（MP3のまま再エンコードするので再生互換性はそのままです）。<br>
     ※ 目安として、base64化すると元ファイルよりおよそ33%大きくなります。
   </footer>
 </div>
@@ -280,6 +286,109 @@
   function escapeHtml(s) {
     return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
+  function updateSizeWarning(state, warnEl) {
+    warnEl = warnEl || document.getElementById(`${state.id}-warn`);
+    if (!warnEl) return;
+    if (state.base64Bytes > 1.5*1024*1024) {
+      warnEl.innerHTML = `<div class="size-warn">埋め込みサイズが大きめです（${formatBytes(state.base64Bytes)}）。下の「サイズを小さくする」で圧縮するか、短尺化を検討してください。</div>`;
+    } else {
+      warnEl.innerHTML = '';
+    }
+  }
+  function floatToInt16(floatArray) {
+    const out = new Int16Array(floatArray.length);
+    for (let i = 0; i < floatArray.length; i++) {
+      let s = Math.max(-1, Math.min(1, floatArray[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return out;
+  }
+
+  async function compressState(state, canvas, startInput, endInput) {
+    const btn = document.getElementById(`${state.id}-compress`);
+    const statusEl = document.getElementById(`${state.id}-compress-status`);
+    const trim = document.getElementById(`${state.id}-trim`).checked;
+    const bitrate = parseInt(document.getElementById(`${state.id}-bitrate`).value, 10);
+
+    btn.disabled = true;
+    statusEl.className = 'compress-status processing';
+    statusEl.textContent = '圧縮中...(曲の長さによっては数秒かかります)';
+    await new Promise(resolve => setTimeout(resolve, 30)); // let the status text paint before the heavy loop
+
+    try {
+      const src = state.audioBuffer;
+      const sampleRate = src.sampleRate;
+      let startSample = 0, endSample = src.length;
+      if (trim) {
+        startSample = Math.max(0, Math.floor(state.loopStart * sampleRate));
+        endSample = Math.min(src.length, Math.floor(state.loopEnd * sampleRate));
+      }
+      const frameCount = Math.max(1, endSample - startSample);
+      const ch0 = src.getChannelData(0).subarray(startSample, endSample);
+      const left = floatToInt16(ch0);
+      let right = null;
+      if (src.numberOfChannels > 1) {
+        const ch1 = src.getChannelData(1).subarray(startSample, endSample);
+        right = floatToInt16(ch1);
+      }
+      const channels = right ? 2 : 1;
+
+      const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, bitrate);
+      const blockSize = 1152;
+      const mp3Chunks = [];
+      for (let i = 0; i < frameCount; i += blockSize) {
+        const leftChunk = left.subarray(i, i + blockSize);
+        let buf;
+        if (right) {
+          const rightChunk = right.subarray(i, i + blockSize);
+          buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+        } else {
+          buf = mp3encoder.encodeBuffer(leftChunk);
+        }
+        if (buf.length > 0) mp3Chunks.push(buf);
+      }
+      const tail = mp3encoder.flush();
+      if (tail.length > 0) mp3Chunks.push(tail);
+
+      const mp3Blob = new Blob(mp3Chunks, { type: 'audio/mpeg' });
+      const mp3ArrayBuffer = await mp3Blob.arrayBuffer();
+      const prevBase64Bytes = state.base64Bytes;
+
+      const base64 = bufferToBase64(mp3ArrayBuffer);
+      state.mime = 'audio/mpeg';
+      state.dataUri = `data:audio/mpeg;base64,${base64}`;
+      state.base64Bytes = base64.length;
+      state.compressedBytes = mp3ArrayBuffer.byteLength;
+
+      if (trim) {
+        const newBuffer = await audioCtx.decodeAudioData(mp3ArrayBuffer.slice(0));
+        state.audioBuffer = newBuffer;
+        state.duration = newBuffer.duration;
+        state.loopStart = 0;
+        state.loopEnd = newBuffer.duration;
+        startInput.value = '0.00';
+        endInput.value = newBuffer.duration.toFixed(2);
+        startInput.max = newBuffer.duration.toFixed(2);
+        endInput.max = newBuffer.duration.toFixed(2);
+        drawWaveform(canvas, state);
+      }
+
+      document.getElementById(`${state.id}-meta`).textContent =
+        `${formatTime(state.duration)}　原:${formatBytes(state.originalBytes)} → 埋込:${formatBytes(state.base64Bytes)}（圧縮済み）`;
+      updateSizeWarning(state);
+      updateCode(state);
+
+      const reduction = Math.round((1 - state.base64Bytes / prevBase64Bytes) * 100);
+      statusEl.className = 'compress-status';
+      statusEl.textContent = `圧縮完了: ${formatBytes(prevBase64Bytes)} → ${formatBytes(state.base64Bytes)}（${reduction}%削減）`;
+    } catch (err) {
+      statusEl.className = 'compress-status';
+      statusEl.style.color = 'var(--warn)';
+      statusEl.textContent = '圧縮に失敗しました: ' + err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
 
   async function processFile(file) {
     const id = 'f' + (fileCounter++);
@@ -305,6 +414,21 @@
         <button class="ctrl primary" id="${id}-playloop">▶ ループ再生プレビュー</button>
         <button class="ctrl stop" id="${id}-stop">■ 停止</button>
       </div>
+      <p class="section-label" style="margin-top:16px;">サイズを小さくする（任意）</p>
+      <div class="compress-row">
+        <label><input type="checkbox" id="${id}-trim"> 選択したループ範囲だけを書き出す</label>
+        <label>ビットレート
+          <select id="${id}-bitrate">
+            <option value="128">128kbps（高音質）</option>
+            <option value="96" selected>96kbps（標準）</option>
+            <option value="64">64kbps（小さめ）</option>
+          </select>
+        </label>
+      </div>
+      <div class="controls">
+        <button class="ctrl" id="${id}-compress">圧縮を実行</button>
+      </div>
+      <div class="compress-status" id="${id}-compress-status"></div>
       <div class="tabs">
         <button class="tab-btn active" data-tab="simple">シンプル(&lt;audio&gt;)</button>
         <button class="tab-btn" data-tab="webaudio">シームレスループ</button>
@@ -366,9 +490,7 @@
         `${formatTime(state.duration)}　原:${formatBytes(state.originalBytes)} → 埋込:${formatBytes(base64Bytes)}`;
 
       const warnEl = document.getElementById(`${id}-warn`);
-      if (base64Bytes > 1.5*1024*1024) {
-        warnEl.innerHTML = `<div class="size-warn">埋め込みサイズが大きめです（${formatBytes(base64Bytes)}）。ページが重くなる場合は短尺化やOGG/Opus化を検討してください。</div>`;
-      }
+      updateSizeWarning(state, warnEl);
 
       const startInput = document.getElementById(`${id}-start`);
       const endInput = document.getElementById(`${id}-end`);
@@ -410,6 +532,7 @@
 
       document.getElementById(`${id}-playloop`).addEventListener('click', () => playLoop(state));
       document.getElementById(`${id}-stop`).addEventListener('click', stopPlayback);
+      document.getElementById(`${id}-compress`).addEventListener('click', () => compressState(state, canvas, startInput, endInput));
 
       document.getElementById(`${id}-copy-simple`).addEventListener('click', () => copyText(buildSimpleCode(state), 'コードをコピーしました'));
       document.getElementById(`${id}-copy-webaudio`).addEventListener('click', () => copyText(buildWebAudioCode(state), 'コードをコピーしました'));
