@@ -308,6 +308,7 @@
     const btn = document.getElementById(`${state.id}-compress`);
     const statusEl = document.getElementById(`${state.id}-compress-status`);
     const trim = document.getElementById(`${state.id}-trim`).checked;
+    const forceMono = document.getElementById(`${state.id}-mono`).checked;
     const bitrate = parseInt(document.getElementById(`${state.id}-bitrate`).value, 10);
 
     btn.disabled = true;
@@ -325,15 +326,23 @@
       }
       const frameCount = Math.max(1, endSample - startSample);
       const ch0 = src.getChannelData(0).subarray(startSample, endSample);
-      const left = floatToInt16(ch0);
-      let right = null;
-      if (src.numberOfChannels > 1) {
+      let left, right = null;
+      if (src.numberOfChannels > 1 && !forceMono) {
+        left = floatToInt16(ch0);
         const ch1 = src.getChannelData(1).subarray(startSample, endSample);
         right = floatToInt16(ch1);
+      } else if (src.numberOfChannels > 1 && forceMono) {
+        const ch1 = src.getChannelData(1).subarray(startSample, endSample);
+        const mixed = new Float32Array(frameCount);
+        for (let i = 0; i < frameCount; i++) mixed[i] = (ch0[i] + ch1[i]) / 2;
+        left = floatToInt16(mixed);
+      } else {
+        left = floatToInt16(ch0);
       }
       const channels = right ? 2 : 1;
+      const effectiveBitrate = (forceMono && src.numberOfChannels > 1) ? Math.max(16, Math.round(bitrate / 2)) : bitrate;
 
-      const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, bitrate);
+      const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, effectiveBitrate);
       const blockSize = 1152;
       const mp3Chunks = [];
       for (let i = 0; i < frameCount; i += blockSize) {
@@ -417,6 +426,7 @@
       <p class="section-label" style="margin-top:16px;">サイズを小さくする（任意）</p>
       <div class="compress-row">
         <label><input type="checkbox" id="${id}-trim"> 選択したループ範囲だけを書き出す</label>
+        <label><input type="checkbox" id="${id}-mono"> モノラルに変換(さらに縮小)</label>
         <label>ビットレート
           <select id="${id}-bitrate">
             <option value="128">128kbps（高音質）</option>
